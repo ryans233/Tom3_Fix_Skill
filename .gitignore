@@ -1,0 +1,27 @@
+# build artefacts (the implementation is produced locally, not committed)
+build/
+*.obj
+*.pdb
+*.asi
+
+# local configuration
+tools/gamepath.txt
+
+# logs
+*.log
+
+# never commit game files or reverse-engineering artefacts
+TreasuresOfMontezuma3.exe
+TreasuresOfMontezuma3.exe.bak
+OpenAL32.dll
+wrap_oal.dll
+magic.dll
+dinput8.dll
+*.dmp
+*.id0
+*.id1
+*.id2
+*.idb
+*.i64
+*.nam
+*.til
