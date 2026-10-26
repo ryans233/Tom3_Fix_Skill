@@ -42,7 +42,7 @@ Tom3_Fix_Skill/
 |---|---|
 | `build\Tom3_Fix.asi` | 修复补丁；IAT 钩住 `OpenAL32.dll!alGenBuffers`，仅在池复用路径释放上一代 3 个 buffer |
 | `build\Tom3AudioLeakRepro.asi` | 复现/压测补丁；直接调用引擎自身的“停止→回起点→重播”入口，按固定频率制造泄漏 |
-| `src\` + 构建脚本 | 上述两个 DLL 的可复现源码；由实现者自备 MSVC x86 工具链构建 |
+| `src\` + 构建脚本 | 上述两个 DLL 的可复现源码；由实现者自备 x86 工具链构建（MSVC 或 MinGW-w64，见 `SKILLS.MD` §3） |
 
 本仓库的验收脚本只认**行为**，不认实现语言、编译器或代码结构。两个 `.asi` 都是普通 32 位 DLL（扩展名不同），由上游 Ultimate ASI Loader（`dinput8.dll`，见 §4）在游戏进程内加载。
 
@@ -110,7 +110,7 @@ gen   == 768 + 3 × hits
 
 ## 4. 快速开始
 
-前置：Windows 10/11 x64、PowerShell 5.1+、已合法安装的游戏、上游 ASI Loader（`dinput8.dll`，见下）、MSVC x86 工具链（实现者构建用）。
+前置：Windows 10/11 x64、PowerShell 5.1+、已合法安装的游戏、上游 ASI Loader（`dinput8.dll`，见下）、可产出 32 位 DLL 的 x86 工具链（MSVC 或 MinGW-w64，实现者构建用）。
 
 **ASI Loader 必须使用上游版本，不要自行编写/“发明”加载器。** 从 [ThirteenAG/Ultimate-ASI-Loader v10.0.0](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.0) 下载 Win32 资源 `Ultimate-ASI-Loader-NoPDB.zip`（或 `Ultimate-ASI-Loader.zip`），取出其中的 32 位 `dinput8.dll` 放到游戏目录。不要改用其他版本、不要用 x64 构建、不要自写代理 DLL：加载器不是本仓库的交付物，也不要提交进仓库（`check-submission.ps1` 会拦截）。
 
@@ -189,7 +189,7 @@ powershell -File tools\test-tom3-audio.ps1 -Scenario both -AsiPath D:\out\Tom3_F
 | Shell | PowerShell 5.1+ |
 | 游戏 | 合法安装的 The Treasures of Montezuma 3（Steam 等） |
 | 加载器 | 上游 Ultimate ASI Loader **v10.0.0** 的 32 位 `dinput8.dll`（从上游 release 获取；不要自行实现） |
-| 构建 | Visual Studio 2019/2022 C++ x86（`cl` + `/MT`），产物必须是 i386 DLL |
+| 构建 | 任意能产出 PE32 DLL 且不依赖非系统运行时的 x86 工具链，例如 Visual Studio 2019/2022（`cl` + `/MT`）或 MinGW-w64（`i686-w64-mingw32-g++ -m32 -static`）；产物必须是 i386 DLL |
 | 显示 | 能创建窗口的桌面会话（脚本等待游戏窗口） |
 
 ---

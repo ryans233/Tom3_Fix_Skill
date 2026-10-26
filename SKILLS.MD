@@ -107,16 +107,27 @@ src\*.cpp, src\*.h            your own source
 build.bat or equivalent       reproducible x86 build
 ```
 
-REQUIRED build shape:
+REQUIRED build shape (either toolchain below satisfies it; the acceptance scripts validate only the PE, not the build command):
+
+MSVC x86:
 
 ```
 cl /nologo /O2 /MT /LD /EHsc /D_CRT_SECURE_NO_WARNINGS /W3 <sources> /Fe:build\<name>.asi
 ```
 
-* x86 only (`/MACHINE:X86`); the game is PE32.
-* `/MT` so the add-on does not depend on a VC runtime DLL.
+MinGW-w64 i686 (equivalent):
+
+```
+i686-w64-mingw32-g++ -m32 -O2 -shared -static -static-libgcc -static-libstdc++ ^
+  -D_CRT_SECURE_NO_WARNINGS -Wall <sources> ^
+  -o build\<name>.asi -lpsapi -luser32 -ladvapi32
+```
+
+* x86 only (`/MACHINE:X86`; MinGW `-m32`); the game is PE32.
+* No dependency on a non-system runtime DLL: MSVC `/MT`; MinGW `-static -static-libgcc -static-libstdc++` (depending on the system `msvcrt.dll` is fine).
 * `.asi` is only a filename; the PE must be a DLL (`IMAGE_FILE_DLL`, characteristics bit `0x2000`).
 * No third-party runtime downloads at build time. Link only Windows SDK import libs you use (`psapi`, `advapi32`, `user32` as needed).
+* Portability notes for non-MSVC toolchains: keep the `__cdecl` hook signature, do not rely on `__try`/`__except` with 32-bit MinGW GCC, and replace `#pragma comment(lib, ...)` with explicit `-l` flags.
 
 The acceptance scripts check the PE machine and DLL flag; they do not build your source.
 

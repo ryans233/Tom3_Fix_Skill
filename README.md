@@ -42,7 +42,7 @@ Deliverables (created by the implementer; not shipped here):
 |---|---|
 | `build\Tom3_Fix.asi` | The fix; IAT-hooks `OpenAL32.dll!alGenBuffers` and releases the previous generation of three buffers only on the pool-reuse path |
 | `build\Tom3AudioLeakRepro.asi` | Reproduction/load driver; calls the engine's own “stop → seek to start → restart” entry at a fixed rate to create leak events |
-| `src\` + build script | Reproducible source for both DLLs; built with the implementer's own MSVC x86 toolchain |
+| `src\` + build script | Reproducible source for both DLLs; built with the implementer's own x86 toolchain (MSVC or MinGW-w64; see `SKILLS.MD` §3) |
 
 Acceptance judges **behavior only**, not implementation language, compiler, or code structure. Both `.asi` files are ordinary 32-bit DLLs with a different extension, loaded in-process by the upstream Ultimate ASI Loader (`dinput8.dll`, see §4).
 
@@ -110,7 +110,7 @@ gen   == 768 + 3 × hits
 
 ## 4. Quick start
 
-Prerequisites: Windows 10/11 x64, PowerShell 5.1+, a legally installed copy of the game, the upstream ASI Loader (`dinput8.dll`, see below), and an MSVC x86 toolchain (for the implementer).
+Prerequisites: Windows 10/11 x64, PowerShell 5.1+, a legally installed copy of the game, the upstream ASI Loader (`dinput8.dll`, see below), and an x86 toolchain that can produce a 32-bit DLL (MSVC or MinGW-w64; for the implementer).
 
 **Use the upstream ASI Loader. Do not write or “invent” a loader.** Download the Win32 asset `Ultimate-ASI-Loader-NoPDB.zip` (or `Ultimate-ASI-Loader.zip`) from [ThirteenAG/Ultimate-ASI-Loader v10.0.0](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.0), take its 32-bit `dinput8.dll`, and place it in the game directory. Do not switch to another version, do not use an x64 build, and do not write your own proxy DLL: the loader is not a deliverable of this repository and must not be committed (`check-submission.ps1` rejects it).
 
@@ -189,7 +189,7 @@ Implementers MUST follow the “Legal & evidence boundary” in `SKILLS.MD`: **n
 | Shell | PowerShell 5.1+ |
 | Game | A legally installed copy of The Treasures of Montezuma 3 (Steam, etc.) |
 | Loader | The 32-bit `dinput8.dll` from upstream Ultimate ASI Loader **v10.0.0** (from the upstream release; do not reimplement it) |
-| Build | Visual Studio 2019/2022 C++ x86 (`cl` + `/MT`); artifacts must be i386 DLLs |
+| Build | Any x86 toolchain producing a PE32 DLL with no non-system runtime dependency — e.g. Visual Studio 2019/2022 (`cl` + `/MT`) or MinGW-w64 (`i686-w64-mingw32-g++ -m32 -static`); artifacts must be i386 DLLs |
 | Display | A desktop session that can create a window (the scripts wait for the game window) |
 
 ---
