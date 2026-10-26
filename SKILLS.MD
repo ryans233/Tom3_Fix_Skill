@@ -256,9 +256,10 @@ The drive thread MUST:
    * `res = *(u32*)(p + 0x58) != 0`
    * `ds  = *(u32*)(p + 0x14) != 0`
    * `state = *(u32*)(p + 0x5C) <= 6`
+   * `*(u32*)(ds + 0x00)` lies inside the main module image, i.e. `base <= *(u32*)(ds + 0x00) < base + SizeOfImage`. The data source is an engine object, so its vtable must be an image address; without this check a stale heap block that still carries the sound-object vtable passes the four field tests above and then faults on the first engine call.
 6. Estimate payload size from the data source: `ptr = *(u32*)(ds + 0x10)`, `end = *(u32*)(ds + 0x14)`, size = `end > ptr ? end - ptr : 0`.
-7. Pick the largest valid object whose size is `<= 1 MiB` (max bytes per event while keeping refill fast). If every estimate is `0`, accept the first valid candidate. Re-scan if the current object becomes invalid.
-8. Call `restart(obj, volume)` inside `__try/__except`; on fault clear the object and rescan.
+7. Rank the valid objects: prefer the largest estimate `<= 1 MiB` (max bytes per event while keeping refill fast). When every estimate is `0`, keep **all** valid objects as an ordered candidate list (newest-first, i.e. descending address) instead of hard-coding one "first valid" object — address order is allocation order, so the lowest address is the oldest, and therefore the most likely stale, block. Re-scan if the current object becomes invalid.
+8. Call `restart(obj, volume)` inside `__try/__except`. On fault: count it (`faults`), add the address to a skip list, clear the object and re-scan. A faulted address MUST NOT be selected again for the rest of the process. The scan is deterministic, so "clear the object and rescan" alone re-selects the same block and the drive loop then stalls at `drives=0` for the whole run.
 9. Sleep `1000 / DriveHz` ms between drives (`DriveHz` clamped to `1..200`).
 
 Volume: `DriveVolumePercent / 100.0f`; `0` is silent and still exercises the whole memory path. Do not add UI automation unless `PokeStart=1`.
@@ -292,11 +293,11 @@ Exact substrings:
 
 ```
 Tom3AudioLeakRepro.asi attached (enabled=<0|1> mode=<drive|multiply> mult=<n> hz=<n> poke=<n>)
-priv=<n.n>MB mode=drive drives=<n> scans=<n> raw=<n> valid=<n> state=<n> obj=<ptr> size=<n> hz=<n> poke=<n>
+priv=<n.n>MB mode=drive drives=<n> scans=<n> raw=<n> valid=<n> state=<n> obj=<ptr> size=<n> faults=<n> hz=<n> poke=<n>
 priv=<n.n>MB mode=multiply events=<n> replays=<n> mult=<n>
 ```
 
-Write status every 2 s. `drives` is the number of restart calls issued and is parsed by the acceptance script.
+Write status every 2 s. `drives` is the number of restart calls issued and is parsed by the acceptance script. `faults` is the number of restart calls that raised a fatal exception and had their object rejected; it is diagnostic only and is not part of any threshold. `drives > 0` with `faults` stuck at a small constant is the healthy shape.
 
 ### 5.5 Threading
 
@@ -389,6 +390,7 @@ Typical PASS shape from the reference implementation (drive 30 Hz, 30 s): `hits 
 | no `Tom3_Fix.log` | `.asi` not loaded | loader name/bitness; log path is game dir |
 | `attached` but no `hooked` | fix disabled, IAT slot not found, or OpenAL missing | ini value; `fix: ERROR` line; `OpenAL32.dll` loaded |
 | `both` flat but `hits=0` | reproducer never drove; wrong restart RVA; object validation too strict | repro log `drives=`, `valid=`, `state=`, `size=`; window open; warmup |
+| `drives=0` while `valid>0` | every candidate faults: the scan selected a stale block that still carries the vtable, and the deterministic re-scan re-selects it | repro log `faults=` and `obj=`; require `*(u32*)ds` inside the image; skip faulted addresses |
 | `repro` does not grow | reproducer not driving, or fix accidentally active | `Fix=0`; `drives` grows; `alGenBuffers` hook absent; slope `none` baseline |
 | growth still high in `both` | hook not deleting (wrong return RVA), or deleting after generation | `hits>0` but `freed` wrong; log `target_ret` |
 | game dies at startup | wrong PE flavor, loader mismatch, or DPI compatibility layer | i386 DLL; upstream v10.0.0 `dinput8.dll` (i386); remove `HIGHDPIAWARE` |
