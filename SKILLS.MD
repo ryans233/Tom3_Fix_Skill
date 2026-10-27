@@ -62,6 +62,7 @@ Coordinates are RVAs relative to ImageBase unless marked VA. They are the only l
 | Coordinate | Meaning | Use |
 |---|---|---|
 | `0x197E30` | pool-reuse routine entry | documentation only |
+| `0x197EA9` | `call ds:alGenBuffers` (6 bytes: `FF 15 <IAT slot VA>`) inside the pool-reuse routine | recommended install-time guard |
 | `0x197EAF` | **return address** of the buffer-generation call inside the pool-reuse routine | hook hit test |
 | `0x197DEC` | call site in the pool-initialization path | MUST NOT be treated as a hit |
 | `0x1988F0` | first-packet fill: uploads the whole stream as one buffer payload | explains leak size = audio length |
@@ -71,7 +72,9 @@ Coordinates are RVAs relative to ImageBase unless marked VA. They are the only l
 | `0x40B60`, `0x40B67` | two direct start calls in the game's sound API | optional `multiply` mode only |
 | `0xAEC9AC` | sound-object vtable address (VA; ASLR off) | reproducer scan tag |
 
-Version guard (RECOMMENDED): read the main module's `SizeOfImage`/file size or a stable fingerprint before installing the hook. If it does not match the target, log `fix: ERROR unexpected target build (…); refusing to hook`, install nothing, and exit cleanly. A wrong-version hook must never call `alDeleteBuffers`.
+**Stock build vs LAA build.** The stock `TreasuresOfMontezuma3.exe` and the same file with `LARGEADDRESSAWARE` set differ by exactly one byte: the `DllCharacteristics` bit at file offset `0x19E` (`0x8100` → `0x8120`). File size, `SizeOfImage`, machine type, code, and every coordinate above are shared, so one add-on serves both and a version guard MUST NOT reject either. LAA only raises the 32-bit address-space ceiling; it is not part of the fix.
+
+Version guard (RECOMMENDED): after locating the `alGenBuffers` IAT slot, read the six bytes at `0x197EA9` and require `FF 15 <operand>` with `<operand>` equal to the slot address you just hooked. That is the exact precondition for the `0x197EAF` hit test, costs one read, and catches a moved call site that file size or `SizeOfImage` cannot (both stay identical across the two builds above, and across unrelated copies of the same size). On mismatch, log `fix: ERROR no call ds:alGenBuffers at <addr> (found <6 bytes>; slot=<addr>) - unsupported exe build`, do not enable the hook, install nothing, and exit cleanly. A wrong-version hook must never call `alDeleteBuffers`. Also scanning the executable sections for every `FF 15 <slot>` and logging those addresses (the pool-init call at `0x197DEC` is one of them) makes future drift diagnosable.
 
 ---
 
@@ -186,8 +189,9 @@ fix: ERROR <reason>
 
 * `attached` line MUST be written on every load, before configuration is applied.
 * `hooked` line MUST be written only when the fix is enabled and the hook is installed.
+* Additional lines are allowed; the acceptance scripts match substrings, not the whole file. The reference writes one identity line before installing the hook so a support log says which build got the fix: `exe: base=<ptr> imageBase=400000 timestamp=4EC618FC sizeOfImage=83D000 LAA=<0|1>`. Reading those values from the main module's `IMAGE_NT_HEADERS32` at runtime also keeps the log honest when a wrapper renames or copies the exe.
 * Status line MUST be written every **2 s** from a dedicated thread, and MUST start with `priv=%.1fMB`. The reference prints the process working set from `GetProcessMemoryInfo` (the `priv=` label is historical); the benchmark measures `PrivateMemorySize64` independently, so this value is diagnostic only.
-* `fix: ERROR` MUST be used for “OpenAL32.dll not loaded”, “alDeleteBuffers not exported”, “alGenBuffers IAT slot not found”, and target-fingerprint refusal.
+* `fix: ERROR` MUST be used for “OpenAL32.dll not loaded”, “alDeleteBuffers not exported”, “alGenBuffers IAT slot not found”, and version-guard refusal (§1).
 * When `Fix=0`, do not install the hook and do not emit the `hooked` line. The `attached` line still appears.
 
 ### 4.4 Configuration

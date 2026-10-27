@@ -36,6 +36,8 @@ Tom3_Fix_Skill/
 
 目标平台：`TreasuresOfMontezuma3.exe`（PE32 i386，ImageBase `0x400000`，无 ASLR，8,504,320 B）。
 
+可选的 LARGEADDRESSAWARE 修改只动 `DllCharacteristics` 的一个位（文件偏移 `0x19E`，`0x8100` → `0x8120`），代码、体积与全部坐标不变。两个变体是同一目标，实现不得以 LAA 位作为门槛（见 §9）。
+
 交付物（实现者自行创建，本仓库不提供）：
 
 | 路径 | 作用 |
@@ -199,7 +201,7 @@ powershell -File tools\test-tom3-audio.ps1 -Scenario both -AsiPath D:\out\Tom3_F
 * 不修复 `% sampleFrames` 的除零隐患（未复现）。
 * 不处理音画不同步的帧时间机制（推断，未实测）。
 * 不承诺消灭所有内存增长；修复只覆盖“复用池对象时泄漏 buffer”，残余 1–3 MB/min 属引擎正常波动。
-* 不保证跨版本兼容：换 exe 后 `0x197EAF` 命中点可能失效；实现必须 fail-closed（`hits=0`，绝不误删）。
+* 不保证跨版本兼容：换 exe 后 `0x197EAF` 命中点可能失效；实现必须 fail-closed（`hits=0`，绝不误删）。推荐的守卫是一次读取：确认 `0x197EA9` 仍是针对刚钩住的 IAT 槽的 `FF 15 <槽地址>`；文件大小与 `SizeOfImage` 无法区分版本，且在原版与 LAA 版之间完全相同，因此两者都不能被拒绝。
 
 ---
 

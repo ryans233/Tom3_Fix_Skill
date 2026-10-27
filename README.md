@@ -36,6 +36,8 @@ Tom3_Fix_Skill/
 
 Target: `TreasuresOfMontezuma3.exe` (PE32 i386, ImageBase `0x400000`, no ASLR, 8,504,320 B).
 
+The optional LARGEADDRESSAWARE edit changes a single `DllCharacteristics` bit (file offset `0x19E`, `0x8100` → `0x8120`) and nothing else: same code, same size, same coordinates. Both variants are the same target, and an implementation must not gate on the LAA flag (see §9).
+
 Deliverables (created by the implementer; not shipped here):
 
 | Path | Purpose |
@@ -199,7 +201,7 @@ Implementers MUST follow the “Legal & evidence boundary” in `SKILLS.MD`: **n
 * Do not fix the `% sampleFrames` divide-by-zero hazard (not reproduced).
 * Do not address the audio/video desynchronization frame-time mechanism (inferred, not measured).
 * Do not promise to eliminate all memory growth. The fix covers only “buffer leak when reusing a pooled object”; the residual 1–3 MB/min is normal engine fluctuation.
-* Do not promise cross-version compatibility: after an exe update, the `0x197EAF` hit site may stop matching. The implementation must fail closed (`hits=0`, never delete wrongly).
+* Do not promise cross-version compatibility: after an exe update, the `0x197EAF` hit site may stop matching. The implementation must fail closed (`hits=0`, never delete wrongly). The recommended guard is a one-read check that `0x197EA9` still holds `FF 15 <IAT slot>` for the slot you just hooked — file size and `SizeOfImage` cannot distinguish builds, and they are identical between the stock and the LAA-enabled file, so neither variant may be rejected.
 
 ---
 
