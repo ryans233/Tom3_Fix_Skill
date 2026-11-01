@@ -1,19 +1,19 @@
-# Tom3 Fix Skill — 蒙提祖玛的宝藏 3 音频泄漏修复：可执行规格与验收
+# Tom3 Fix Skill — 蒙提祖玛的宝藏 3 音频泄漏修复 + 快捷键：可执行规格与验收
 
 **English: [README.md](README.md)**
 
-本仓库是蒙提祖玛的宝藏 3 音频泄漏修复的**规格 + 验收**仓库，不含补丁本体，也不含游戏的任何代码、二进制、资源或反编译产物。
+本仓库是蒙提祖玛的宝藏 3 的 Tom3_Fix 插件（音频泄漏修复 + 可配置的 `H` / `R` / `F5` 提示/重排/重开快捷键）的**规格 + 验收**仓库，不含补丁本体，也不含游戏的任何代码、二进制、资源或反编译产物。
 
-它让 LLM（或任何实现者）在**只依据行为契约与互操作坐标**的前提下，写出满足契约的 ASI 修复补丁，并用本仓库 `tools\` 的判据验收。
+它让 LLM（或任何实现者）在**只依据行为契约与互操作坐标**的前提下，写出满足契约的 ASI 插件，并用本仓库 `tools\` 的判据验收。
 
 ## 这个项目解决什么问题
 
-**用户遇到的问题**：`TreasuresOfMontezuma3.exe` 是 32 位进程，连续游玩约 30 分钟后窗口“未响应”，只能强制结束再重开；重开后同样会复发。原因是音频对象池在复用 `{1 source + 3 buffers}` 时直接覆盖旧 buffer 名字、从不释放，导致每播放一次就泄漏约一整段音频 PCM，内存以约 44 MB/min 增长直至地址空间耗尽，随后分配失败在音频线程中触发模态对话框并与音频 tick 线程死锁（行为级根因见 §2）。
+**用户遇到的问题**：`TreasuresOfMontezuma3.exe` 是 32 位进程，连续游玩约 30 分钟后窗口“未响应”，只能强制结束再重开；重开后同样会复发。原因是音频对象池在复用 `{1 source + 3 buffers}` 时直接覆盖旧 buffer 名字、从不释放，导致每播放一次就泄漏约一整段音频 PCM，内存以约 44 MB/min 增长直至地址空间耗尽，随后分配失败在音频线程中触发模态对话框并与音频 tick 线程死锁（行为级根因见 §2）。另外，游戏的提示、重排、重开按钮只支持鼠标；插件把它们分别绑定到 `H`、`R`、`F5`，不改变按钮本身的行为。
 
 **本仓库负责的环节**：
 
-1. **可执行规格**（`SKILLS.md`）：把“修什么、在哪修、什么时候绝不能修”写成契约——只在池复用覆盖旧名字之前删除上一代 3 个 buffer，其他路径一律透传；坐标不匹配时必须 fail-closed。不依赖反编译文本，实现者不需要游戏源码。
-2. **可复现的验收**（`tools\`）：用固定阈值区分“复现”和“修复”——未修复时增长 `≥ 60 MB/min` 或进程耗尽，修复后压平到 `< 15 MB/min`，并用 `freed = 3 × hits`、`gen = 768 + 3 × hits` 证明钩子只命中复用路径。
+1. **可执行规格**（`SKILLS.MD`）：把“修什么、在哪修、什么时候绝不能修”写成契约——只在池复用覆盖旧名字之前删除上一代 3 个 buffer，其他路径一律透传；坐标不匹配时必须 fail-closed。同时规定快捷键契约：在游戏主线程调用按钮注册的同一批 `on_click` 处理函数，以关卡状态为前提，三个键独立开关。不依赖反编译文本，实现者不需要游戏源码。
+2. **可复现的验收**（`tools\`）：用固定阈值区分“复现”和“修复”——未修复时增长 `≥ 60 MB/min` 或进程耗尽，修复后压平到 `< 15 MB/min`，并用 `freed = 3 × hits`、`gen = 768 + 3 × hits` 证明钩子只命中复用路径。运行时部署检查还会证明快捷键处理函数已绑定、主线程轮询定时器已安装。
 3. **合规边界**：不修改游戏 exe、不分发游戏文件或反编译产物；只接受独立 `.asi` 插件。
 
 **本仓库不提供**：修复补丁二进制、ASI Loader、游戏本体。两个 `.asi` 由实现者按规格自建；验收只认行为，不认语言、编译器或代码结构。
@@ -22,10 +22,10 @@
 Tom3_Fix_Skill/
   README.md                  英文版：项目简介、验收标准、合规边界
   README_ZH.md               本文件（中文版）
-  SKILLS.MD                  LLM 执行手册（英文）：缺陷模型、补丁契约、复现器契约、验收流程
+  SKILLS.MD                  LLM 执行手册（英文）：缺陷模型、补丁契约、快捷键契约、复现器契约、验收流程
   tools/set-gamepath.ps1     记录游戏安装目录（git-ignored）
   tools/check-submission.ps1 提交合规与产物格式检查（不启动游戏）
-  tools/verify-tom3fix.ps1   部署 + 运行时验证（静态项、日志、钩子）
+  tools/verify-tom3fix.ps1   部署 + 运行时验证（静态项、日志、钩子、快捷键绑定）
   tools/test-tom3-audio.ps1  端到端泄漏基准（repro / both / fix / none）
   tools/run-acceptance.ps1   一键验收：合规 → 部署验证 → 三个基准场景
 ```
@@ -42,9 +42,11 @@ Tom3_Fix_Skill/
 
 | 路径 | 作用 |
 |---|---|
-| `build\Tom3_Fix.asi` | 修复补丁；IAT 钩住 `OpenAL32.dll!alGenBuffers`，仅在池复用路径释放上一代 3 个 buffer |
+| `build\Tom3_Fix.asi` | 修复补丁；IAT 钩住 `OpenAL32.dll!alGenBuffers`，仅在池复用路径释放上一代 3 个 buffer。同时把 `H` / `R` / `F5` 绑定到游戏自己的提示 / 重排 / 重开处理函数，并创建/读取 `Tom3_Fix.ini`（`[Fix]` 与 `[Hotkeys]`）。 |
 | `build\Tom3AudioLeakRepro.asi` | 复现/压测补丁；直接调用引擎自身的“停止→回起点→重播”入口，按固定频率制造泄漏 |
 | `src\` + 构建脚本 | 上述两个 DLL 的可复现源码；由实现者自备 x86 工具链构建（MSVC 或 MinGW-w64，见 `SKILLS.MD` §3） |
+
+快捷键固定为 `H`（提示）、`R`（重排）、`F5`（重开）；只支持按项启用/停用，不支持改键。
 
 本仓库的验收脚本只认**行为**，不认实现语言、编译器或代码结构。两个 `.asi` 都是普通 32 位 DLL（扩展名不同），由上游 Ultimate ASI Loader（`dinput8.dll`，见 §4）在游戏进程内加载。
 
@@ -75,16 +77,30 @@ Tom3_Fix_Skill/
 | ASI Loader `dinput8.dll` | 存在；应为上游 Ultimate ASI Loader v10.0.0 的 32 位构建 | FAIL |
 | `Tom3_Fix.asi` | 存在；部署副本与传入产物 SHA256 一致 | FAIL / WARN |
 | `Tom3_Fix.ini` | 缺失或键缺失 = `AudioMemoryLeakFix=1`；显式 `0` 表示停用 | PASS / WARN |
+| `[Hotkeys]` 配置 | `Hint` / `Shuffle` / `Restart`；键缺失 = 启用；设 `0` 只停用该项 | PASS / WARN |
 | `HIGHDPIAWARE` 兼容层 | 未设置（只读检查） | WARN |
 | 游戏启动 | 40 s 内出现窗口 | FAIL |
 | 日志 | 出现 `Tom3_Fix.asi attached`；启用时出现 `fix: alGenBuffers hooked` | FAIL |
-| 日志错误 | 无 `fix: ERROR` | FAIL（由钩子检查间接判定） |
+| 快捷键安装日志 | 任一快捷键启用时：`hotkeys: enabled`、`hotkeys: window subclassed`、`hotkeys: polling timer armed on the game thread` | FAIL |
+| 日志错误 | 无 `fix: ERROR`，无 `hotkeys: ERROR` | FAIL |
 | 复现器残留 | 安装目录无 `Tom3AudioLeakRepro.asi` | WARN |
 | LARGEADDRESSAWARE | 仅提示，不是修复 | WARN |
 
 退出码：`0` = 无 FAIL；`1` = 至少一个 FAIL。
 
-### 3.2 泄漏基准（阈值硬编码）
+### 3.2 快捷键行为（手动）
+
+`verify-tom3fix.ps1` 只能证明三个处理函数已绑定、主线程定时器已安装；它不会进入关卡，因此按键效果需要手动检查。正常游玩时：
+
+| 按键 | 预期 | 日志 |
+|---|---|---|
+| `H` | 与点提示按钮相同的提示箭头 | `hotkey: H hint (hint active …)` |
+| `R` | 棋盘重排；有次数时扣 1 次 | `hotkey: R shuffle (charges N->N-1)` |
+| `F5` | 就地重开当前关卡 | `hotkey: F5 restart` |
+
+另需验证：切到其他窗口后三个键均无效果；结算/过场时 `F5` 被忽略（`hotkey: F5 ignored (state=… lock=…)`）；把某一项设为 `0` 只停用该键；鼠标点原来的提示/重排/重开按钮仍正常。状态行末尾的 `hk=<hint>/<shuffle>/<restart>` 为累计触发次数。完整步骤见 `SKILLS.MD` §6.6。
+
+### 3.3 泄漏基准（阈值硬编码）
 
 | 场景 | 部署 | 判据 | 退出码 |
 |---|---|---|---|
@@ -97,7 +113,7 @@ Tom3_Fix_Skill/
 
 测量方式：启动 → 等窗口 → 预热（默认 26 s，覆盖开场）→ 每 250 ms 采样 `PrivateMemorySize64`、逐秒记账 → 最小二乘拟合 `MB/min` → 读日志尾部计数器 → 关闭游戏并恢复部署（只留 `Tom3_Fix.asi`，删除两个 ini 以便下次自建）。
 
-### 3.3 计数器不变量（诊断用，不改变判定）
+### 3.4 计数器不变量（诊断用，不改变判定）
 
 `both` / `fix` 运行后，日志尾部应满足：
 
@@ -116,7 +132,7 @@ gen   == 768 + 3 × hits
 
 **ASI Loader 必须使用上游版本，不要自行编写/“发明”加载器。** 从 [ThirteenAG/Ultimate-ASI-Loader v10.0.0](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.0) 下载 Win32 资源 `Ultimate-ASI-Loader-NoPDB.zip`（或 `Ultimate-ASI-Loader.zip`），取出其中的 32 位 `dinput8.dll` 放到游戏目录。不要改用其他版本、不要用 x64 构建、不要自写代理 DLL：加载器不是本仓库的交付物，也不要提交进仓库（`check-submission.ps1` 会拦截）。
 
-> `repro` / `both` 场景会让游戏发出噪音，属复现器预期行为，详见 §3.2 的噪音警告。
+> `repro` / `both` 场景会让游戏发出噪音，属复现器预期行为，详见 §3.3 的噪音警告。
 
 ```powershell
 # 1) 记录游戏目录（优先级：-GameDir > TOM3_GAMEDIR > tools\gamepath.txt）
@@ -161,7 +177,7 @@ powershell -File tools\test-tom3-audio.ps1 -Scenario both -AsiPath D:\out\Tom3_F
 |---|---|---|
 | `tools\set-gamepath.ps1` | 记录游戏安装目录 | 优先级 `-GameDir` > `%TOM3_GAMEDIR%` > `tools\gamepath.txt`；文件 git-ignored |
 | `tools\check-submission.ps1` | 提交合规与 PE 格式检查 | 不启动游戏，不参与行为判定 |
-| `tools\verify-tom3fix.ps1` | 部署 + 运行时验证 | 支持 `-AsiPath` / `-ReproAsiPath`；校验部署副本与传入产物的 SHA256 |
+| `tools\verify-tom3fix.ps1` | 部署 + 运行时验证 | 支持 `-AsiPath` / `-ReproAsiPath`；校验部署副本与传入产物的 SHA256；检查 `[Hotkeys]` 配置与快捷键绑定日志 |
 | `tools\test-tom3-audio.ps1` | 端到端泄漏基准 | 场景 `repro` / `both` / `fix` / `none`；产物缺失时退出码 `2` |
 | `tools\run-acceptance.ps1` | 聚合验收 | 依次执行上述检查与三个基准场景，不新增判据 |
 
@@ -202,6 +218,8 @@ powershell -File tools\test-tom3-audio.ps1 -Scenario both -AsiPath D:\out\Tom3_F
 * 不处理音画不同步的帧时间机制（推断，未实测）。
 * 不承诺消灭所有内存增长；修复只覆盖“复用池对象时泄漏 buffer”，残余 1–3 MB/min 属引擎正常波动。
 * 不保证跨版本兼容：换 exe 后 `0x197EAF` 命中点可能失效；实现必须 fail-closed（`hits=0`，绝不误删）。推荐的守卫是一次读取：确认 `0x197EA9` 仍是针对刚钩住的 IAT 槽的 `FF 15 <槽地址>`；文件大小与 `SizeOfImage` 无法区分版本，且在原版与 LAA 版之间完全相同，因此两者都不能被拒绝。
+* 快捷键不做改键、不做自定义键码、不模拟鼠标事件、不新增游戏逻辑；`H` / `R` / `F5` 固定，只调用游戏现有的按钮处理函数。
+* 快捷键不在后台轮询线程里直接调用游戏函数，也不为快捷键修改游戏代码或 vtable。
 
 ---
 

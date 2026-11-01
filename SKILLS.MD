@@ -1,13 +1,13 @@
 ---
 name: tom3-audio-fix
-description: Build an ASI add-on for The Treasures of Montezuma 3 that stops the OpenAL buffer-name leak on the pooled {source + 3 buffers} reuse path, plus a reproducer and the exact acceptance checks.
+description: Build an ASI add-on for The Treasures of Montezuma 3 that stops the OpenAL buffer-name leak on the pooled {source + 3 buffers} reuse path and adds configurable H/R/F5 hotkeys for the game's hint, shuffle and restart buttons, plus a reproducer and the exact acceptance checks.
 ---
 
-# SKILLS — Tom3 audio leak fix
+# SKILLS — Tom3 audio leak fix + gameplay hotkeys
 
 You are implementing an **interoperability add-on** for `TreasuresOfMontezuma3.exe`, not modifying the game. The goal is a pair of 32-bit DLLs (`.asi`) whose observable effect matches this document's contract:
 
-1. `build\Tom3_Fix.asi` — stops the per-play OpenAL buffer leak.
+1. `build\Tom3_Fix.asi` — stops the per-play OpenAL buffer leak, and binds `H` / `R` / `F5` to the game's own hint / shuffle / restart button handlers.
 2. `build\Tom3AudioLeakRepro.asi` — drives the engine's own replay entry so the leak can be measured without gameplay.
 
 Acceptance is behavioral and must use the scripts in `tools\` with the thresholds in this file. No game code, no decompiled output, no dumps, no game assets may be committed or pasted anywhere.
@@ -22,6 +22,7 @@ RFC 2119 keywords apply (`MUST`, `MUST NOT`, `SHOULD`, `MAY`). `NEVER` = `MUST N
 * NEVER modify, patch, repack, or redistribute the game executable. The deliverable is an independently loaded DLL.
 * NEVER bypass DRM, activation, integrity checks, or anti-cheat.
 * The offsets, RVAs, field offsets, and vtable addresses below are **interoperability facts** about the unmodified target. They exist so your hook can cooperate with the binary. They are not code and MUST NOT be expanded into instruction listings or decompiled text in your submission, docs, logs, or issues.
+* The pseudocode blocks in this document are original, language-neutral descriptions of the required behavior. They are not decompiler output and contain no instructions from the target program.
 * Acceptance runs locally against a copy the user is licensed to use. Scripts do not upload or collect data.
 * Game names and all game content belong to their owners. This project is unaffiliated.
 * If local law or the EULA forbids in-process add-ons, stop. Do not use this skill.
@@ -35,11 +36,12 @@ RFC 2119 keywords apply (`MUST`, `MUST NOT`, `SHOULD`, `MAY`). `NEVER` = `MUST N
 0. Install the ASI loader from upstream. Do NOT write, reimplement, or bundle your own loader/proxy DLL. Download the Win32 package from [Ultimate ASI Loader v10.0.0](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.0) (asset `Ultimate-ASI-Loader-NoPDB.zip` or `Ultimate-ASI-Loader.zip`), take its 32-bit `dinput8.dll`, confirm it is i386, and place it next to the exe. The loader is third-party, is not a deliverable, and MUST NOT be committed or redistributed.
 1. Read `tools\verify-tom3fix.ps1` and `tools\test-tom3-audio.ps1` so you know exactly what is parsed and how PASS is decided.
 2. Confirm the target fingerprint in §1. If it does not match, stop: implement fail-closed behavior and report the mismatch instead of guessing offsets.
-3. Implement `Tom3_Fix.asi` to the contract in §4. Keep the hit test as the only trigger for deletion.
-4. Implement `Tom3AudioLeakRepro.asi` to the contract in §5 (`drive` mode is required).
-5. Build both x86 DLLs into `build\` with the exact names.
-6. Run `check-submission.ps1`, then `verify-tom3fix.ps1`, then the three benchmark scenarios (or `run-acceptance.ps1`).
-7. Fix any failed step and re-run. Report the exact exit codes and verdict lines; never claim PASS without them.
+3. Implement `Tom3_Fix.asi` to the audio-fix contract in §4. Keep the hit test as the only trigger for deletion.
+4. Implement the `H` / `R` / `F5` hotkeys in the same DLL to the contract in §4.7. They are independent of the audio fix and each has its own config toggle.
+5. Implement `Tom3AudioLeakRepro.asi` to the contract in §5 (`drive` mode is required).
+6. Build both x86 DLLs into `build\` with the exact names.
+7. Run `check-submission.ps1`, then `verify-tom3fix.ps1`, then the three benchmark scenarios (or `run-acceptance.ps1`). `verify-tom3fix.ps1` also checks that the hotkey bindings were installed; the actual key effects are a manual check (§6.6) because they require entering a level.
+8. Fix any failed step and re-run. Report the exact exit codes and verdict lines; never claim PASS without them.
 
 
 ---
@@ -71,6 +73,21 @@ Coordinates are RVAs relative to ImageBase unless marked VA. They are the only l
 | `0x194970` | stop / return bundle to pool | documentation only |
 | `0x40B60`, `0x40B67` | two direct start calls in the game's sound API | optional `multiply` mode only |
 | `0xAEC9AC` | sound-object vtable address (VA; ASLR off) | reproducer scan tag |
+
+Hotkey coordinates (used only by §4.7; the audio fix does not need them):
+
+| Coordinate | Meaning | Use |
+|---|---|---|
+| `0x4FE90` | `on_click("hint")` handler, entry bytes `55 8B EC 6A FF` | `H` target |
+| `0x43970` | `on_click("shuffle")` handler, entry bytes `56 8B F1` | `R` target |
+| `0x51B40` | `on_click("restart")` handler, entry bytes `55 8B EC` | `F5` target |
+| `0x79C5C0` | global slot holding the current gameplay object (VA `0xB9C5C0`) | hotkey `this`; non-null only inside a level |
+| `0x79C4DC` | global slot holding the profile/level object (VA `0xB9C4DC`) | shuffle charges at `+0xC0` (diagnostic) |
+| `0x198F8` | gameplay object offset: state integer (`2` = normal play) | gate |
+| `0x198FC` | gameplay object offset: update-lock byte (`0` = live) | gate |
+| `0x3D8` | gameplay object offset: hint controller; active integer at `+0x24` | hint diagnostic |
+
+The three handlers are the exact callbacks the game registers for its HUD widgets, so calling them produces the same effect as a mouse click. Signatures: hint/shuffle are `void __thiscall(gameplay *, int)` and ignore the integer argument (pass `0`); restart is `int __thiscall(gameplay *)`. Do not patch the game's code or vtables for this feature.
 
 **Stock build vs LAA build.** The stock `TreasuresOfMontezuma3.exe` and the same file with `LARGEADDRESSAWARE` set differ by exactly one byte: the `DllCharacteristics` bit at file offset `0x19E` (`0x8100` → `0x8120`). File size, `SizeOfImage`, machine type, code, and every coordinate above are shared, so one add-on serves both and a version guard MUST NOT reject either. LAA only raises the 32-bit address-space ceiling; it is not part of the fix.
 
@@ -181,18 +198,30 @@ Log file: **`Tom3_Fix.log` next to the game exe**. Create with `CREATE_ALWAYS`, 
 Exact substrings the acceptance script matches (keep them):
 
 ```
-Tom3_Fix.asi attached (Fix=<0|1>, ini=Tom3_Fix.ini)
+Tom3_Fix.asi attached (Fix=<0|1>, Hotkeys H/R/F5=<0|1>/<0|1>/<0|1>, ini=Tom3_Fix.ini)
 fix: alGenBuffers hooked (orig=<ptr> delete=<ptr> target_ret=<ptr>)
-priv=<n.n>MB fix=<0|1> hits=<n> freed=<n> gen=<n>
+priv=<n.n>MB fix=<0|1> hits=<n> freed=<n> gen=<n> hk=<hint>/<shuffle>/<restart>
+hotkeys: enabled (H=hint <0|1>, R=shuffle <0|1>, F5=restart <0|1>, gameplay=<ptr>)
+hotkeys: window subclassed (hwnd=<ptr> oldproc=<ptr>)
+hotkeys: polling timer armed on the game thread
+hotkeys: polling timer running
+hotkey: H hint (hint active <n>-><n>)
+hotkey: R shuffle (charges <n>-><n>)
+hotkey: F5 restart
+hotkey: <H|R|F5> ignored (state=<n> lock=<n>)
 fix: ERROR <reason>
+hotkeys: ERROR <reason>
 ```
 
-* `attached` line MUST be written on every load, before configuration is applied.
+* `attached` line MUST be written on every load, before configuration is applied. The `Hotkeys H/R/F5=` triple reports the three resolved config values (`1` = enabled, `0` = disabled).
 * `hooked` line MUST be written only when the fix is enabled and the hook is installed.
+* `hotkeys: enabled` MUST be written when at least one of the three hotkeys is enabled and the handler bindings were validated. `window subclassed`, `polling timer armed`, and the first `polling timer running` line are diagnostic but are checked by `verify-tom3fix.ps1`.
 * Additional lines are allowed; the acceptance scripts match substrings, not the whole file. The reference writes one identity line before installing the hook so a support log says which build got the fix: `exe: base=<ptr> imageBase=400000 timestamp=4EC618FC sizeOfImage=83D000 LAA=<0|1>`. Reading those values from the main module's `IMAGE_NT_HEADERS32` at runtime also keeps the log honest when a wrapper renames or copies the exe.
-* Status line MUST be written every **2 s** from a dedicated thread, and MUST start with `priv=%.1fMB`. The reference prints the process working set from `GetProcessMemoryInfo` (the `priv=` label is historical); the benchmark measures `PrivateMemorySize64` independently, so this value is diagnostic only.
+* Status line MUST be written every **2 s** from a dedicated thread, and MUST start with `priv=%.1fMB`. The reference prints the process working set from `GetProcessMemoryInfo` (the `priv=` label is historical); the benchmark measures `PrivateMemorySize64` independently, so this value is diagnostic only. The trailing `hk=<hint>/<shuffle>/<restart>` counters are cumulative hotkey trigger counts; test scripts match `hits=` / `freed=` / `gen=` independently and MUST tolerate the extra field.
 * `fix: ERROR` MUST be used for “OpenAL32.dll not loaded”, “alDeleteBuffers not exported”, “alGenBuffers IAT slot not found”, and version-guard refusal (§1).
+* `hotkeys: ERROR` MUST be used for a handler entry-byte mismatch, a failed window subclass, or a failed timer arming. A hotkey installation failure MUST NOT disable the audio fix, and vice versa.
 * When `Fix=0`, do not install the hook and do not emit the `hooked` line. The `attached` line still appears.
+* When all three hotkeys are `0`, do not bind the handlers and do not emit `hotkeys: enabled` or the timer lines. The `attached` line still appears.
 
 ### 4.4 Configuration
 
@@ -207,9 +236,17 @@ Create it on first run if missing, with this content (ASCII/CRLF, comments in En
 ; actual memory-leak fix for the crash after ~30 minutes of play.
 ; 0 = disabled, 1 = enabled
 AudioMemoryLeakFix=1
+
+[Hotkeys]
+; Independent toggles; the keys are fixed: H = hint, R = shuffle, F5 = restart.
+; Each reuses the same handler as the corresponding on-screen button.
+; 0 = disabled, 1 = enabled
+Hint=1
+Shuffle=1
+Restart=1
 ```
 
-Parsing: `GetPrivateProfileIntA("Fix", "AudioMemoryLeakFix", 1, path)`. Missing file or key = `1`. Only `0` disables. Existing files MUST NOT be overwritten.
+Parsing: `GetPrivateProfileIntA("Fix", "AudioMemoryLeakFix", 1, path)` and `GetPrivateProfileIntA("Hotkeys", "Hint"|"Shuffle"|"Restart", 1, path)`. Missing file or key = `1`. Only `0` disables. The three hotkey keys are independent; keys are NOT remappable. Existing files MUST NOT be overwritten (an older file without `[Hotkeys]` therefore gets all three enabled by default).
 
 ### 4.5 Startup order
 
@@ -218,11 +255,15 @@ In `DllMain(DLL_PROCESS_ATTACH)`:
 1. `DisableThreadLibraryCalls`.
 2. Open the log.
 3. Create the ini template if missing.
-4. Read `AudioMemoryLeakFix`.
-5. Log `attached`.
+4. Read `AudioMemoryLeakFix` and the three `[Hotkeys]` values.
+5. Log `attached` with `Fix=`, the `Hotkeys H/R/F5=` triple, and `ini=`.
 6. Optional: read `HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers` for this exe and WARN if `HIGHDPIAWARE` is present. Read-only; never write.
-7. If enabled: install hook, log `hooked`, start the 2 s status thread.
-8. Never fail process load because of the fix.
+7. If the audio fix is enabled: install the hook, log `hooked`. If it is disabled, log no `hooked` line; this MUST NOT affect hotkeys.
+8. If at least one hotkey is enabled: validate the three handler entry bytes, store the function pointers, start the window-watcher thread, and log `hotkeys: enabled …`. If none is enabled, do not bind and do not start the watcher.
+9. Start the 2 s status thread if either feature is active. Include `hk=` counters in its lines.
+10. Never fail process load because of either feature.
+
+The audio fix and the hotkey feature MUST be independently installable: a failure in one MUST NOT prevent the other from working (unless both are disabled).
 
 DPI: do nothing. The game manifest already declares awareness; the add-on MUST NOT call DPI APIs.
 
@@ -233,6 +274,127 @@ DPI: do nothing. The game manifest already declares awareness; the add-on MUST N
 * Do not patch the game's call sites for the fix.
 * Do not add a second leak fix for object destruction; not observed and out of scope.
 * Do not change the audio stream or sample counts.
+
+### 4.7 Hotkey contract — `H` / `R` / `F5`
+
+`Tom3_Fix.asi` MUST bind three fixed hotkeys to the game's existing HUD button handlers. This is an input convenience only: it does not add game logic, and it MUST behave exactly like clicking the corresponding button.
+
+| Key | Effect | Handler RVA | Call |
+|---|---|---|---|
+| `H` | start the hint arrow | `0x4FE90` | `hint(gameplay*, 0)` |
+| `R` | reshuffle the board (consumes one charge) | `0x43970` | `shuffle(gameplay*, 0)` |
+| `F5` | restart the current level in place | `0x51B40` | `restart(gameplay*)` |
+
+The keys are fixed. Only enable/disable is configurable, independently per key (`[Hotkeys] Hint/Shuffle/Restart`, missing = `1`).
+
+**Preconditions and gates**
+
+* The handlers are the exact callbacks the game registers for `on_click` on the widgets named `hint`, `shuffle`, and `restart`. Call them directly; do NOT synthesize mouse input and do NOT patch game code or vtables.
+* The live gameplay object is read from the global slot at RVA `0x79C5C0` (VA `0xB9C5C0`). It is non-null only while a level is alive. If null, do nothing.
+* Only act when `*(int*)(gameplay + 0x198F8) == 2` (normal play) and `*(uint8_t*)(gameplay + 0x198FC) == 0` (update not locked). This keeps hotkeys out of transitions, pause, and results screens.
+* Only act when the foreground window belongs to the current process. A hotkey pressed while another application is focused MUST be ignored.
+* Use rising-edge detection with `GetAsyncKeyState` plus one previous-down flag per key (`H` = VK `0x48`, `R` = VK `0x52`, `F5` = VK `0x74`). One action per physical press.
+* Validate the three handler entry bytes before binding (`55 8B EC 6A FF`, `56 8B F1`, `55 8B EC`). On mismatch, log `hotkeys: ERROR … unsupported exe build`, bind nothing, and leave the audio fix untouched.
+* The hint/shuffle handlers have their own state checks internally; do not bypass them. The restart handler has no state check, so the gate above is mandatory for `F5`.
+
+**Threading model (critical invariant)**
+
+The handlers touch UI, board, and audio state. They MUST run on the game's main thread, between frames, exactly where the game dispatches its own UI events. Calling them from a background polling thread is a contract violation.
+
+The reference implementation uses the game window's message loop:
+
+1. A watcher thread finds the game window (same PID, visible, client at least `320 × 240`) and subclasses it with `SetWindowLongPtrW(GWLP_WNDPROC, hotkey_wndproc)`, chaining to the previous procedure for every other message. The watcher only subclasses and posts a private message; it NEVER calls a game handler.
+2. Because `SetTimer` is thread-affine to the window's owning thread, the watcher posts `WM_APP + n` to the window. `hotkey_wndproc` (running on the game's main thread) handles that message and calls `SetTimer(hwnd, id, 25 ms, null)`.
+3. `WM_TIMER` for that id is also delivered to `hotkey_wndproc` on the main thread. It polls the keys and dispatches the actions.
+
+If the window procedure is replaced, the watcher re-subclasses and re-arms the timer. Do not arm the timer from the watcher thread; a timer owned by a thread that never pumps messages may never fire.
+
+**Pseudocode**
+
+```
+// ---- install, on DLL_PROCESS_ATTACH (main/loader thread) ----
+read hint_on, shuffle_on, restart_on = ini [Hotkeys] Hint/Shuffle/Restart (default 1)
+log("Tom3_Fix.asi attached (Fix=%d, Hotkeys H/R/F5=%d/%d/%d, ini=%s)", ...)
+if hint_on or shuffle_on or restart_on:
+    if bytes(base+0x4FE90, 5) != 55 8B EC 6A FF
+       or bytes(base+0x43970, 3) != 56 8B F1
+       or bytes(base+0x51B40, 3) != 55 8B EC:
+        log("hotkeys: ERROR entry-byte mismatch - unsupported exe build")
+        hint_on = shuffle_on = restart_on = false
+    else:
+        hint_fn    = base + 0x4FE90
+        shuffle_fn = base + 0x43970
+        restart_fn = base + 0x51B40
+        log("hotkeys: enabled (H=hint %d, R=shuffle %d, F5=restart %d, gameplay=%p)", ...)
+        start watcher_thread()
+
+// ---- watcher thread: never touches game state ----
+loop every 1 s:
+    if game_hwnd is not a window:
+        game_hwnd = EnumWindows(own PID, visible, client >= 320x240)
+        timer_armed = false
+    if game_hwnd exists:
+        if GetWindowLongPtrW(game_hwnd, GWLP_WNDPROC) != hotkey_wndproc:
+            old_proc = SetWindowLongPtrW(game_hwnd, GWLP_WNDPROC, hotkey_wndproc)
+            timer_armed = false
+            log("hotkeys: window subclassed (hwnd=%p oldproc=%p)", ...)
+        if not timer_armed:
+            PostMessageW(game_hwnd, WM_APP_ARM_TIMER, 0, 0)
+
+// ---- hotkey_wndproc: runs on the game's main thread ----
+on WM_APP_ARM_TIMER:
+    if SetTimer(hwnd, TIMER_ID, 25, null):
+        timer_armed = true
+        log("hotkeys: polling timer armed on the game thread")
+    else:
+        log("hotkeys: ERROR SetTimer(hwnd=%p) failed (%lu)", ...)
+    return 0
+on WM_TIMER where wParam == TIMER_ID:
+    log_once("hotkeys: polling timer running")
+    process_keys()
+    return 0
+otherwise:
+    return CallWindowProcW(old_proc, hwnd, msg, wParam, lParam)
+
+process_keys():
+    h  = rising_edge('H');  r = rising_edge('R');  f5 = rising_edge(VK_F5)
+    if not ((h and hint_on) or (r and shuffle_on) or (f5 and restart_on)): return
+    if GetForegroundWindow() is not this process: return
+    self = *(void**)(base + 0x79C5C0)
+    if self == null: return
+    state = *(int*)(self + 0x198F8)
+    lock  = *(uint8_t*)(self + 0x198FC)
+    if h and hint_on:
+        if state != 2 or lock != 0: log("hotkey: H ignored (state=%d lock=%d)")
+        else: hint_fn(self, 0); log("hotkey: H hint ...")
+    if r and shuffle_on:
+        if state != 2 or lock != 0: log("hotkey: R ignored (state=%d lock=%d)")
+        else: shuffle_fn(self, 0); log("hotkey: R shuffle ...")
+    if f5 and restart_on:
+        if state != 2 or lock != 0: log("hotkey: F5 ignored (state=%d lock=%d)")
+        else: restart_fn(self); log("hotkey: F5 restart")
+
+rising_edge(vk):
+    down = (GetAsyncKeyState(vk) & 0x8000) != 0
+    edge = down and not previous_down[vk]
+    previous_down[vk] = down
+    return edge
+```
+
+**Diagnostics**
+
+* Increment `hint_count` / `shuffle_count` / `restart_count` when an action is dispatched; include them in the status line as `hk=<hint>/<shuffle>/<restart>`.
+* For the hint line, the reference reads the hint controller's active integer at `*(int*)(gameplay + 0x3D8 + 0x24)` before and after the call and logs `(hint active <before>-><after>)`.
+* For the shuffle line, the reference reads the profile object from RVA `0x79C4DC` and logs `*(int*)(profile + 0xC0)` before and after as `(charges <before>-><after>)`. If the profile pointer is null, log `-1`.
+* Do not make acceptance depend on specific counter values; the manual checklist only requires that the log line appears and the counter increases.
+
+**Non-goals for hotkeys**
+
+* No key remapping and no configurable key codes.
+* No mouse-event synthesis or window-message injection that pretends to be a click.
+* No vtable or code-page patching.
+* No direct calls from the watcher thread.
+* No new game logic; only the three existing button handlers.
 
 ---
 
@@ -341,6 +503,8 @@ It MUST observe:
 * with `Fix=1`, it contains `fix: alGenBuffers hooked`;
 * with `Fix=0`, it does not;
 * no `fix: ERROR`;
+* `[Hotkeys]` values are resolved (missing file/key = enabled); with at least one enabled, the log contains `hotkeys: enabled`, `hotkeys: window subclassed`, and `hotkeys: polling timer armed on the game thread`; with all three `0`, none of those lines appears;
+* no `hotkeys: ERROR`;
 * deployed `Tom3_Fix.asi` hash equals the `-AsiPath`;
 * no `Tom3AudioLeakRepro.asi` left in the install.
 
@@ -385,6 +549,27 @@ The scripts print these as `INFO`. They are evidence that only the reuse path wa
 
 Typical PASS shape from the reference implementation (drive 30 Hz, 30 s): `hits ≈ 1000`, `freed ≈ 3000`, `gen ≈ 7800`, slope `≈ 2–3 MB/min`. Absolute values vary with UI state and duration; proportionality and invariants matter.
 
+### 6.6 Hotkey behavior (manual)
+
+`verify-tom3fix.ps1` proves the handlers were bound and the main-thread timer was armed; it cannot enter a level, so the actual key effects are a manual check. Start the game with `Fix=1` and all three hotkeys enabled, then enter any level:
+
+| Test | Expected | Log |
+|---|---|---|
+| press `H` | same hint arrow as clicking the hint button | `hotkey: H hint (hint active …)` |
+| press `R` | same board reshuffle as the shuffle button; one charge consumed if the count is greater than zero | `hotkey: R shuffle (charges N->N-1)` |
+| press `F5` | current level restarts in place (timer, score, board reset; same level) | `hotkey: F5 restart` |
+| focus another window, press `H`/`R`/`F5` | no effect, no new `hotkey:` line | — |
+| press `F5` during a results/transition screen | ignored | `hotkey: F5 ignored (state=… lock=…)` |
+| set one toggle to `0`, restart the game, press that key | no effect and no `hotkey:` line; the other two keys still work | — |
+
+Required supplementary evidence:
+
+* the status line's `hk=<hint>/<shuffle>/<restart>` counters increase only for the keys that actually fired;
+* mouse clicks on the original hint, shuffle, and restart buttons still work;
+* with `R`, if the on-screen shuffle button is disabled because the charge count is `0`, `R` is also a no-op (same handler check). Do not add a bypass.
+
+The manual checks do not replace the automated audio acceptance; both are required for the definition of done.
+
 ---
 
 ## 7. Debugging map
@@ -400,6 +585,14 @@ Typical PASS shape from the reference implementation (drive 30 Hz, 30 s): `hits 
 | game dies at startup | wrong PE flavor, loader mismatch, or DPI compatibility layer | i386 DLL; upstream v10.0.0 `dinput8.dll` (i386); remove `HIGHDPIAWARE` |
 | `hits>0` but `freed≠3*hits` | counter race or `n` misread | atomic increments; use the hook argument `n` |
 | `gen≠768+3*hits` | hook misses calls or adds extra ones | pass-through must always call original exactly once |
+| `attached` shows hotkeys on but no `hotkeys: enabled` | hotkey binding skipped/failed, or all `[Hotkeys]` values are `0` | ini values; `hotkeys: ERROR` line; entry-byte validation |
+| `hotkeys: ERROR … unsupported exe build` | handler entry bytes moved | re-check RVAs `0x4FE90` / `0x43970` / `0x51B40` against §1 |
+| `hotkeys: enabled` but no `window subclassed` | watcher did not find the game window, or subclassing failed | visible window with client ≥ 320×240; `SetWindowLongPtrW` error; watcher runs every 1 s |
+| `window subclassed` but no `polling timer armed` | timer armed from the watcher thread instead of the window's owning thread | watcher must `PostMessage` a private `WM_APP+n`; the window procedure calls `SetTimer` |
+| keys do nothing inside a level | gameplay pointer null, state not `2`, update locked, window not foreground, or edge flags stale | log `hotkey: … ignored`; check `*(void**)(base+0x79C5C0)`, `+0x198F8`, `+0x198FC`; foreground PID |
+| `H` logs a line but no visible hint | hint controller already active, or tutorial/pause gate inside the handler | compare with the on-screen hint button; check the handler's own conditions |
+| `R` logs a line but no reshuffle | shuffle charge count is `0` | `*(int*)(*(void**)(base+0x79C4DC) + 0xC0)`; the button has the same limit |
+| `F5` logs `ignored (state=6 …)` | results/transition screen, by design | wait until normal play; state must be `2` |
 
 Fail closed: if any coordinate or export is missing, log an error and leave the engine untouched. A no-op add-on is acceptable; a wrong deletion is not.
 
@@ -410,6 +603,11 @@ Fail closed: if any coordinate or export is missing, log an error and leave the 
 - [ ] `build\Tom3_Fix.asi` and `build\Tom3AudioLeakRepro.asi` exist, are i386 DLLs, and are built from your own `src\`.
 - [ ] `check-submission.ps1` exits `0`.
 - [ ] `verify-tom3fix.ps1` exits `0`; log shows attach + hook; no `fix: ERROR`.
+- [ ] `Tom3_Fix.ini` template contains `[Fix]` and `[Hotkeys] Hint/Shuffle/Restart` (three independent toggles; keys fixed).
+- [ ] With at least one hotkey enabled, the log shows `hotkeys: enabled`, `window subclassed`, and `polling timer armed on the game thread`; no `hotkeys: ERROR`.
+- [ ] Manual hotkey check: in a level, `H` shows the hint arrow, `R` reshuffles and consumes a charge, `F5` restarts the level, and the status `hk=` counters increase.
+- [ ] Manual toggle check: setting one `[Hotkeys]` key to `0` disables only that key; the other two still work.
+- [ ] Hotkeys do nothing when another application is foreground, and `F5` is ignored on result/transition screens.
 - [ ] `repro` exits `0` (growth `>= 60 MB/min` or process exhausted).
 - [ ] `both` exits `0` (growth `< 15 MB/min`, `hits > 0`).
 - [ ] `fix` exits `0` (idle growth `< 15 MB/min`).

@@ -1,19 +1,19 @@
-# Tom3 Fix Skill — The Treasures of Montezuma 3 audio-leak fix: executable spec and acceptance
+# Tom3 Fix Skill — The Treasures of Montezuma 3 audio-leak fix + hotkeys: executable spec and acceptance
 
 **中文版 / Chinese: [README_ZH.md](README_ZH.md)**
 
-This repository is the **specification + acceptance** companion to the audio-leak fix for The Treasures of Montezuma 3. It does not contain the patch itself, and it contains no game code, binaries, assets, or decompiler output.
+This repository is the **specification + acceptance** companion to the Tom3_Fix add-on for The Treasures of Montezuma 3: the audio-leak fix plus configurable `H` / `R` / `F5` hotkeys for the game's hint, shuffle and restart buttons. It does not contain the patch itself, and it contains no game code, binaries, assets, or decompiler output.
 
 It lets an LLM (or any implementer) build an ASI patch that satisfies the contract using **only the behavioral contract and interoperability coordinates**, and then verify it with the criteria in `tools\`.
 
 ## What this project solves
 
-**The user-visible problem:** `TreasuresOfMontezuma3.exe` is a 32-bit process. After roughly 30 minutes of continuous play the window becomes “Not Responding” and can only be killed and restarted; the same failure recurs. The audio object pool reuses `{1 source + 3 buffers}` objects but overwrites the old buffer names without ever releasing them. Every play therefore leaks roughly one full audio PCM asset, memory grows at about 44 MB/min until the 32-bit address space is exhausted, an allocation failure in the audio thread raises a modal dialog, and a deadlock with the audio tick thread follows (behavioral root cause in §2).
+**The user-visible problem:** `TreasuresOfMontezuma3.exe` is a 32-bit process. After roughly 30 minutes of continuous play the window becomes “Not Responding” and can only be killed and restarted; the same failure recurs. The audio object pool reuses `{1 source + 3 buffers}` objects but overwrites the old buffer names without ever releasing them. Every play therefore leaks roughly one full audio PCM asset, memory grows at about 44 MB/min until the 32-bit address space is exhausted, an allocation failure in the audio thread raises a modal dialog, and a deadlock with the audio tick thread follows (behavioral root cause in §2). Separately, the game's hint, shuffle, and restart controls are mouse-only; the add-on binds them to `H`, `R`, and `F5` without changing the underlying behavior.
 
 **What this repository provides:**
 
-1. **An executable specification** (`SKILLS.MD`): a contract for *what* to fix, *where*, and *when never to fix it* — delete the previous generation of three buffers immediately before the pool reuse overwrites their names, and pass every other call through untouched; fail closed when coordinates do not match. It does not depend on decompiled text, and the implementer does not need game source code.
-2. **Reproducible acceptance** (`tools\`): fixed thresholds separate “reproduced” from “fixed” — an unfixed build grows at `≥ 60 MB/min` or exhausts the process, while a fixed build stays below `< 15 MB/min`. The counters `freed = 3 × hits` and `gen = 768 + 3 × hits` prove the hook fires only on the reuse path.
+1. **An executable specification** (`SKILLS.MD`): a contract for *what* to fix, *where*, and *when never to fix it* — delete the previous generation of three buffers immediately before the pool reuse overwrites their names, and pass every other call through untouched; fail closed when coordinates do not match. It also specifies the hotkey contract: call the exact `on_click` handlers on the game's main thread, gate on gameplay state, and keep each key independently configurable. It does not depend on decompiled text, and the implementer does not need game source code.
+2. **Reproducible acceptance** (`tools\`): fixed thresholds separate “reproduced” from “fixed” — an unfixed build grows at `≥ 60 MB/min` or exhausts the process, while a fixed build stays below `< 15 MB/min`. The counters `freed = 3 × hits` and `gen = 768 + 3 × hits` prove the hook fires only on the reuse path. Runtime deployment checks also prove the hotkey handlers were bound and the main-thread polling timer was armed.
 3. **A compliance boundary**: do not modify the game exe, and do not distribute game files or decompiler output; only an independent `.asi` add-on is accepted.
 
 **Not provided:** the patched binaries, the ASI loader, or the game itself. The implementer builds both `.asi` files from the specification; acceptance judges behavior only, not language, compiler, or code structure.
@@ -22,10 +22,10 @@ It lets an LLM (or any implementer) build an ASI patch that satisfies the contra
 Tom3_Fix_Skill/
   README.md                  English: project overview, acceptance criteria, compliance boundary
   README_ZH.md               Chinese version of this file
-  SKILLS.MD                  LLM handbook (English): defect model, fix contract, reproducer contract, acceptance
+  SKILLS.MD                  LLM handbook (English): defect model, fix contract, hotkey contract, reproducer contract, acceptance
   tools/set-gamepath.ps1     remembers the game install directory (git-ignored)
   tools/check-submission.ps1 submission compliance + artifact format (does not start the game)
-  tools/verify-tom3fix.ps1   deployment + runtime verification (static checks, log, hook)
+  tools/verify-tom3fix.ps1   deployment + runtime verification (static checks, log, hook, hotkey bindings)
   tools/test-tom3-audio.ps1  end-to-end leak benchmark (repro / both / fix / none)
   tools/run-acceptance.ps1   one-shot acceptance: compliance → deployment verification → three benchmarks
 ```
@@ -42,9 +42,11 @@ Deliverables (created by the implementer; not shipped here):
 
 | Path | Purpose |
 |---|---|
-| `build\Tom3_Fix.asi` | The fix; IAT-hooks `OpenAL32.dll!alGenBuffers` and releases the previous generation of three buffers only on the pool-reuse path |
+| `build\Tom3_Fix.asi` | The fix; IAT-hooks `OpenAL32.dll!alGenBuffers` and releases the previous generation of three buffers only on the pool-reuse path. It also binds `H` / `R` / `F5` to the game's own hint / shuffle / restart handlers and creates/reads `Tom3_Fix.ini` (`[Fix]` and `[Hotkeys]`). |
 | `build\Tom3AudioLeakRepro.asi` | Reproduction/load driver; calls the engine's own “stop → seek to start → restart” entry at a fixed rate to create leak events |
 | `src\` + build script | Reproducible source for both DLLs; built with the implementer's own x86 toolchain (MSVC or MinGW-w64; see `SKILLS.MD` §3) |
+
+Hotkeys are fixed to `H` (hint), `R` (shuffle), and `F5` (restart); only enable/disable is configurable, independently per key. The keys are not remappable.
 
 Acceptance judges **behavior only**, not implementation language, compiler, or code structure. Both `.asi` files are ordinary 32-bit DLLs with a different extension, loaded in-process by the upstream Ultimate ASI Loader (`dinput8.dll`, see §4).
 
@@ -75,16 +77,30 @@ All criteria are implemented by `tools\verify-tom3fix.ps1` and `tools\test-tom3-
 | ASI Loader `dinput8.dll` | present; should be the 32-bit build of upstream Ultimate ASI Loader v10.0.0 | FAIL |
 | `Tom3_Fix.asi` | present; deployed copy has the same SHA256 as the passed artifact | FAIL / WARN |
 | `Tom3_Fix.ini` | missing file or key = `AudioMemoryLeakFix=1`; explicit `0` disables | PASS / WARN |
+| `[Hotkeys]` config | `Hint` / `Shuffle` / `Restart`; missing key = enabled; each `0` disables only that key | PASS / WARN |
 | `HIGHDPIAWARE` compatibility layer | not set (read-only check) | WARN |
 | Game startup | window appears within 40 s | FAIL |
 | Log | contains `Tom3_Fix.asi attached`; contains `fix: alGenBuffers hooked` when enabled | FAIL |
-| Log errors | no `fix: ERROR` | FAIL (judged indirectly by the hook check) |
+| Hotkey install log | with any hotkey enabled: `hotkeys: enabled`, `hotkeys: window subclassed`, `hotkeys: polling timer armed on the game thread` | FAIL |
+| Log errors | no `fix: ERROR` and no `hotkeys: ERROR` | FAIL |
 | Reproducer left behind | no `Tom3AudioLeakRepro.asi` in the install directory | WARN |
 | LARGEADDRESSAWARE | informational only; not the fix | WARN |
 
 Exit codes: `0` = no FAIL; `1` = at least one FAIL.
 
-### 3.2 Leak benchmark (hard-coded thresholds)
+### 3.2 Hotkey behavior (manual)
+
+`verify-tom3fix.ps1` proves the three handlers were bound and the main-thread timer was armed; it cannot enter a level, so the key effects are a manual check. In normal play:
+
+| Key | Expected | Log |
+|---|---|---|
+| `H` | same hint arrow as the hint button | `hotkey: H hint (hint active …)` |
+| `R` | board reshuffle; consumes one charge if available | `hotkey: R shuffle (charges N->N-1)` |
+| `F5` | restart the current level in place | `hotkey: F5 restart` |
+
+Also verify: another application in the foreground suppresses all three; `F5` is ignored on result/transition screens (`hotkey: F5 ignored (state=… lock=…)`); setting one toggle to `0` disables only that key; and mouse clicks on the original buttons still work. The status line ends with `hk=<hint>/<shuffle>/<restart>` counters. Full steps are in `SKILLS.MD` §6.6.
+
+### 3.3 Leak benchmark (hard-coded thresholds)
 
 | Scenario | Deployment | Criterion | Exit |
 |---|---|---|---|
@@ -97,7 +113,7 @@ Exit codes: `0` = no FAIL; `1` = at least one FAIL.
 
 Measurement: launch → wait for the window → warm up (default 26 s, covering the intro) → sample `PrivateMemorySize64` every 250 ms, record once per second → least-squares fit in `MB/min` → read the tail of the patch log for counters → close the game and restore the deployment (leave only `Tom3_Fix.asi`, delete both ini files so they are regenerated next time).
 
-### 3.3 Counter invariants (diagnostic, does not change the verdict)
+### 3.4 Counter invariants (diagnostic, does not change the verdict)
 
 After `both` / `fix`, the log tail should satisfy:
 
@@ -116,7 +132,7 @@ Prerequisites: Windows 10/11 x64, PowerShell 5.1+, a legally installed copy of t
 
 **Use the upstream ASI Loader. Do not write or “invent” a loader.** Download the Win32 asset `Ultimate-ASI-Loader-NoPDB.zip` (or `Ultimate-ASI-Loader.zip`) from [ThirteenAG/Ultimate-ASI-Loader v10.0.0](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v10.0.0), take its 32-bit `dinput8.dll`, and place it in the game directory. Do not switch to another version, do not use an x64 build, and do not write your own proxy DLL: the loader is not a deliverable of this repository and must not be committed (`check-submission.ps1` rejects it).
 
-> The `repro` / `both` scenarios make the game produce noise. This is the reproducer's intended behavior; see the noise warning in §3.2.
+> The `repro` / `both` scenarios make the game produce noise. This is the reproducer's intended behavior; see the noise warning in §3.3.
 
 ```powershell
 # 1) Remember the game directory (priority: -GameDir > TOM3_GAMEDIR > tools\gamepath.txt)
@@ -161,7 +177,7 @@ powershell -File tools\test-tom3-audio.ps1 -Scenario both -AsiPath D:\out\Tom3_F
 |---|---|---|
 | `tools\set-gamepath.ps1` | Remember the game install directory | Priority `-GameDir` > `%TOM3_GAMEDIR%` > `tools\gamepath.txt`; file is git-ignored |
 | `tools\check-submission.ps1` | Submission compliance and PE format check | Does not start the game and does not judge behavior |
-| `tools\verify-tom3fix.ps1` | Deployment + runtime verification | Supports `-AsiPath` / `-ReproAsiPath`; compares the deployed copy's SHA256 with the passed artifact |
+| `tools\verify-tom3fix.ps1` | Deployment + runtime verification | Supports `-AsiPath` / `-ReproAsiPath`; compares the deployed copy's SHA256 with the passed artifact; checks the `[Hotkeys]` config and hotkey binding log lines |
 | `tools\test-tom3-audio.ps1` | End-to-end leak benchmark | Scenarios `repro` / `both` / `fix` / `none`; exit code `2` when an artifact is missing |
 | `tools\run-acceptance.ps1` | Aggregate acceptance | Runs the checks above and the three benchmarks; adds no criteria |
 
@@ -202,6 +218,8 @@ Implementers MUST follow the “Legal & evidence boundary” in `SKILLS.MD`: **n
 * Do not address the audio/video desynchronization frame-time mechanism (inferred, not measured).
 * Do not promise to eliminate all memory growth. The fix covers only “buffer leak when reusing a pooled object”; the residual 1–3 MB/min is normal engine fluctuation.
 * Do not promise cross-version compatibility: after an exe update, the `0x197EAF` hit site may stop matching. The implementation must fail closed (`hits=0`, never delete wrongly). The recommended guard is a one-read check that `0x197EA9` still holds `FF 15 <IAT slot>` for the slot you just hooked — file size and `SizeOfImage` cannot distinguish builds, and they are identical between the stock and the LAA-enabled file, so neither variant may be rejected.
+* Do not add key remapping, configurable key codes, mouse-event synthesis, or new game logic for the hotkeys. `H` / `R` / `F5` are fixed and only call the game's existing button handlers.
+* Do not call game handlers from a background polling thread or patch game code/vtables for the hotkeys.
 
 ---
 

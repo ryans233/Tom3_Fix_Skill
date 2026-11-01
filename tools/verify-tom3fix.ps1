@@ -7,13 +7,16 @@
       * game executable present + LARGEADDRESSAWARE state (optional mitigation)
       * ASI loader (dinput8.dll) present
       * Tom3_Fix.asi deployed and identical to the passed artifact
-      * Tom3_Fix.ini present / key value (missing file or key = defaults)
+      * Tom3_Fix.ini present / key values (missing file or key = defaults),
+        including the independent [Hotkeys] Hint/Shuffle/Restart toggles
       * HIGHDPIAWARE compatibility layer (known startup-hang suspect) not set
       * reproducer not left in the install directory
 
     Runtime checks
       * game starts and reaches a window
       * Tom3_Fix.log shows "attached" and (if enabled) "alGenBuffers hooked"
+      * with any hotkey enabled, the log shows "hotkeys: enabled",
+        "window subclassed" and "polling timer armed"; no "hotkeys: ERROR"
       * no "fix: ERROR" line
 
     Optional
@@ -154,6 +157,15 @@ if ($null -eq $iniValue) {
     Line ($(if ($fixEnabled) { 'PASS' } else { 'WARN' })) ("AudioMemoryLeakFix=$iniValue" + $(if ($fixEnabled) { '' } else { ' (fix disabled by config)' }))
 }
 
+$hkHintVal = Get-IniValue $FixIni 'Hotkeys' 'Hint'
+$hkShuffleVal = Get-IniValue $FixIni 'Hotkeys' 'Shuffle'
+$hkRestartVal = Get-IniValue $FixIni 'Hotkeys' 'Restart'
+$hkHint = if ($null -eq $hkHintVal) { $true } else { $hkHintVal -ne '0' }
+$hkShuffle = if ($null -eq $hkShuffleVal) { $true } else { $hkShuffleVal -ne '0' }
+$hkRestart = if ($null -eq $hkRestartVal) { $true } else { $hkRestartVal -ne '0' }
+$hotkeysEnabled = $hkHint -or $hkShuffle -or $hkRestart
+Line 'INFO' ("Hotkeys Hint={0} Shuffle={1} Restart={2} (missing key = enabled)" -f $hkHint, $hkShuffle, $hkRestart)
+
 $layer = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers' `
                            -Name $Exe -ErrorAction SilentlyContinue).$Exe
 if ($layer -and ($layer -match 'HIGHDPIAWARE')) {
@@ -196,6 +208,25 @@ if ($p.HasExited) {
         } else {
             if ($log -match 'fix: alGenBuffers hooked') { Line 'FAIL' 'fix is disabled in ini but a hook was installed' }
             else { Line 'PASS' 'fix disabled as configured (no hook)' }
+        }
+
+        if ($hotkeysEnabled) {
+            if ($log -match 'hotkeys: enabled \(H=hint') { Line 'PASS' 'hotkey handlers bound' }
+            else { Line 'FAIL' 'no hotkey install line in log' }
+            if ($log -match 'hotkeys: window subclassed') { Line 'PASS' 'hotkey window subclass installed' }
+            else { Line 'FAIL' 'game window was not subclassed for hotkeys' }
+            if ($log -match 'hotkeys: polling timer armed') { Line 'PASS' 'hotkey polling timer armed on the game thread' }
+            else { Line 'FAIL' 'hotkey polling timer was not armed on the game thread' }
+            if ($log -match 'hotkeys: polling timer running') { Line 'PASS' 'hotkey polling timer is running' }
+            else { Line 'WARN' 'hotkey polling timer armed but no tick observed yet' }
+        } else {
+            if ($log -match 'hotkeys: enabled') { Line 'FAIL' 'all hotkeys are disabled in ini but handlers were bound' }
+            else { Line 'PASS' 'hotkeys disabled as configured' }
+        }
+
+        if ($log -match 'hotkeys: ERROR') {
+            $err = ($log -split "`n" | Where-Object { $_ -match 'hotkeys: ERROR' } | Select-Object -First 1)
+            Line 'FAIL' ("hotkey error: " + $err.Trim())
         }
     }
 }
