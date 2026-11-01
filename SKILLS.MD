@@ -151,6 +151,8 @@ i686-w64-mingw32-g++ -m32 -O2 -shared -static -static-libgcc -static-libstdc++ ^
 
 The acceptance scripts check the PE machine and DLL flag; they do not build your source.
 
+The skill repository itself ships **no patch source and no build script**. `src/`, `build.bat`, and `build/` are implementer-local, are listed in `.gitignore`, and MUST NOT be committed to this repository. The pseudocode blocks in this document are the only implementation-shaped content; they are language-neutral, non-compilable descriptions, not patch code.
+
 The ASI loader is NOT part of the deliverable. Do not create one: fetch the 32-bit `dinput8.dll` from the upstream Ultimate ASI Loader v10.0.0 release (§0.1, step 0) and leave it out of the submission.
 
 ---

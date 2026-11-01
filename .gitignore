@@ -4,6 +4,14 @@ build/
 *.pdb
 *.asi
 
+# implementer workspace: this repository ships no patch source or build script
+src/
+build.bat
+*.c
+*.cpp
+*.h
+*.hpp
+
 # local configuration
 tools/gamepath.txt
 

@@ -48,6 +48,8 @@ Deliverables (created by the implementer; not shipped here):
 
 Hotkeys are fixed to `H` (hint), `R` (shuffle), and `F5` (restart); only enable/disable is configurable, independently per key. The keys are not remappable.
 
+This repository itself ships **only the specification and the acceptance scripts**. `src/`, `build.bat`, and `build/` are implementer-local, are listed in `.gitignore`, and MUST NOT be committed here; the repository must stay free of patch source and patch binaries.
+
 Acceptance judges **behavior only**, not implementation language, compiler, or code structure. Both `.asi` files are ordinary 32-bit DLLs with a different extension, loaded in-process by the upstream Ultimate ASI Loader (`dinput8.dll`, see §4).
 
 ---
